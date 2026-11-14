@@ -49,6 +49,46 @@ const askByHand = async () => {
   return null;
 };
 
+// The token of an earlier install may still be good: the port of the service
+// may have changed, but the token did not. The phone is asked with that
+// token first, so a re-run of the installer does not throw a working token
+// away for a new one, and does not ask for anything either.
+const trySaved = async () => {
+  if (typeof saved.baseURL !== "string" || typeof saved.token !== "string") return null;
+  const baseURL = saved.baseURL.trim().replace(/\/+$/, "");
+  if (!baseURL || !saved.token) return null;
+  const probe = new Request(baseURL + "/api/v1/overview");
+  probe.headers = { Authorization: "Bearer " + saved.token };
+  probe.timeoutInterval = 8;
+  try {
+    await probe.loadJSON();
+    if (probe.response && probe.response.statusCode === 200) {
+      return { baseURL, token: saved.token };
+    }
+  } catch {
+    // The token is not good any more, or that address does not answer.
+  }
+  return null;
+};
+
+// The old token has served its time. Its row is taken off the list of the
+// service, so the phone does not leave a shadow behind. The phone asks with
+// the old token, so this only works while that token is still known.
+async function forgetToken(token, baseURL) {
+  if (!token || !baseURL) return false;
+  try {
+    const request = new Request(baseURL + "/api/v1/device/forget");
+    request.method = "POST";
+    request.headers = { Authorization: "Bearer " + token, "Content-Type": "application/json" };
+    request.body = "{}";
+    request.timeoutInterval = 8;
+    const answer = await request.loadJSON();
+    return !!(answer && answer.forgotten);
+  } catch {
+    return false;
+  }
+}
+
 // The plugin handed this file out with a pairing code in it. The code opens
 // the door once and lives ten minutes, so the phone exchanges it for a token
 // of its own: neither the address nor the token has to be typed.
@@ -83,10 +123,13 @@ const pairByCode = async () => {
   }
 };
 
-const entered = (await pairByCode()) || (await askByHand());
+const entered = (await trySaved()) || (await pairByCode()) || (await askByHand());
 if (entered) {
   const baseURL = entered.baseURL;
   const token = entered.token;
+  // The token that was in the keychain before this run. When a new one
+  // replaces it, the old row is taken off the list of the service.
+  const previousToken = typeof saved.token === "string" ? saved.token : "";
   try {
     // The same rules as the service itself (lib/network.mjs): HTTPS may be
     // any name, plain HTTP only a name or an address of a network that is
@@ -180,6 +223,11 @@ if (entered) {
     }
     fm.writeString(target, source);
     Keychain.set(SETTINGS_KEY, JSON.stringify({ baseURL, token }));
+    // The old token is left behind in the list of the service otherwise, and
+    // every re-pair would add a row that nobody can use any more.
+    if (previousToken && previousToken !== token) {
+      await forgetToken(previousToken, typeof saved.baseURL === "string" ? saved.baseURL : baseURL);
+    }
     const done = new Alert();
     done.title = "已连接";
     done.message = "UsageWidget 已安装。长按桌面添加 Scriptable 中号或大号小组件，选择 UsageWidget。每页最多六个订阅，布局随数量自动调整。\n\n中号和大号参数留空即可；page=2 查看第二页，used 改显已用，可组合 page=2|used。小号填 codex、minimax 或 glm，可加 |used；同一个厂商登录了多个账号时，填 codex@账号名 指定其中一个（如 codex@liuzq），只填 codex 表示该厂商的第一个账号。再次运行本安装器可更新组件。";

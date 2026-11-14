@@ -153,7 +153,7 @@ const overview = (display = {}, cards = null) => ({
 
 const runWidget = async ({
   request,
-  keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40) }) },
+  keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:3498', token: 'a'.repeat(40) }) },
   config = {},
   args = {},
   paired = null,
@@ -269,11 +269,11 @@ test('a new code is exchanged before the token the phone already has', async () 
     '/api/v1/device/forget': { forgotten: true },
     '/api/v1/overview': overview(),
   });
-  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40), code: 'old-code' }) };
+  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:3498', token: 'a'.repeat(40), code: 'old-code' }) };
   const run = await runWidget({
     request: Request,
     keychain,
-    paired: { baseURL: 'http://127.0.0.1:8790', code: 'fresh-code' },
+    paired: { baseURL: 'http://127.0.0.1:3498', code: 'fresh-code' },
   });
   // The exchange comes first, and the reading is asked for with the new token.
   const session = asked.findIndex((call) => call.url.endsWith('/api/v1/session'));
@@ -300,7 +300,7 @@ test('a code that no longer works falls back to the token the phone has', async 
   });
   const run = await runWidget({
     request: Request,
-    paired: { baseURL: 'http://127.0.0.1:8790', code: 'a-code-that-was-used' },
+    paired: { baseURL: 'http://127.0.0.1:3498', code: 'a-code-that-was-used' },
   });
   // The session is not among the answers: the code was used, so the exchange
   // fails and the token that is there is used as it was.
@@ -314,13 +314,42 @@ test('a code that has been used is not asked for again', async () => {
   const { Request, asked } = listening({
     '/api/v1/overview': overview(),
   });
-  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40), code: 'the-same-code' }) };
+  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:3498', token: 'a'.repeat(40), code: 'the-same-code' }) };
   await runWidget({
     request: Request,
     keychain,
-    paired: { baseURL: 'http://127.0.0.1:8790', code: 'the-same-code' },
+    paired: { baseURL: 'http://127.0.0.1:3498', code: 'the-same-code' },
   });
   assert.equal(asked.find((call) => call.url.endsWith('/api/v1/session')), undefined);
+});
+
+test('a code that the service refuses with 403 is not asked for again', async () => {
+  // 403 is the answer of the service to a code that was used or that has
+  // gone stale. The phone used to treat it as a network that did not answer,
+  // and asked for the same dead code on every refresh.
+  const { Request, asked } = listening({
+    '/api/v1/overview': overview(),
+    '/api/v1/session': 403,
+  });
+  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:3498', token: 'a'.repeat(40), code: 'an-older-code' }) };
+  const run = await runWidget({
+    request: Request,
+    keychain,
+    paired: { baseURL: 'http://127.0.0.1:3498', code: 'the-dead-code' },
+  });
+  // The exchange was tried and refused: the code is written down as dead,
+  // and the token the phone has is kept.
+  assert.equal(asked.filter((call) => call.url.endsWith('/api/v1/session')).length, 1);
+  const saved = JSON.parse(run.kept[0][1]);
+  assert.equal(saved.code, 'the-dead-code');
+  assert.equal(saved.token, 'a'.repeat(40));
+  // The next run does not ask for the dead code again.
+  await runWidget({
+    request: Request,
+    keychain: { [SETTINGS_KEY]: JSON.stringify(saved) },
+    paired: { baseURL: 'http://127.0.0.1:3498', code: 'the-dead-code' },
+  });
+  assert.equal(asked.filter((call) => call.url.endsWith('/api/v1/session')).length, 1);
 });
 
 test('a reading of another day is not shown as the usage of today', async () => {
@@ -402,11 +431,11 @@ test('a code that only failed because the service did not answer is asked again'
     '/api/v1/overview': overview(),
     '/api/v1/session': () => { throw new Error('The request timed out.'); },
   });
-  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40) }) };
+  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:3498', token: 'a'.repeat(40) }) };
   const run = await runWidget({
     request: Request,
     keychain,
-    paired: { baseURL: 'http://127.0.0.1:8790', code: 'a-fresh-code' },
+    paired: { baseURL: 'http://127.0.0.1:3498', code: 'a-fresh-code' },
   });
   const saved = JSON.parse(run.kept[run.kept.length - 1][1]);
   assert.equal(saved.code, '', 'the code is not spent by a timeout');
@@ -414,7 +443,7 @@ test('a code that only failed because the service did not answer is asked again'
   await runWidget({
     request: Request,
     keychain: { [SETTINGS_KEY]: JSON.stringify(saved) },
-    paired: { baseURL: 'http://127.0.0.1:8790', code: 'a-fresh-code' },
+    paired: { baseURL: 'http://127.0.0.1:3498', code: 'a-fresh-code' },
   });
   assert.equal(asked.filter((call) => call.url.endsWith('/api/v1/session')).length, 2, 'the code is asked again');
 });
@@ -430,7 +459,7 @@ test('a code that is refused for good is not asked again', async () => {
   });
   const run = await runWidget({
     request: Request,
-    paired: { baseURL: 'http://127.0.0.1:8790', code: 'a-stale-code' },
+    paired: { baseURL: 'http://127.0.0.1:3498', code: 'a-stale-code' },
   });
   const saved = JSON.parse(run.kept[run.kept.length - 1][1]);
   assert.equal(saved.code, 'a-stale-code', 'the code is spent');
@@ -438,7 +467,7 @@ test('a code that is refused for good is not asked again', async () => {
   await runWidget({
     request: Request,
     keychain: { [SETTINGS_KEY]: JSON.stringify(saved) },
-    paired: { baseURL: 'http://127.0.0.1:8790', code: 'a-stale-code' },
+    paired: { baseURL: 'http://127.0.0.1:3498', code: 'a-stale-code' },
   });
   assert.equal(asked.filter((call) => call.url.endsWith('/api/v1/session')).length, 1, 'the code is not asked again');
 });
@@ -469,7 +498,7 @@ test('the phone that has to pair again says so on every refresh', async () => {
     '/api/v1/device/forget': { forgotten: true },
     '/api/v1/overview': 401,
   });
-  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40) }) };
+  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:3498', token: 'a'.repeat(40) }) };
   const first = await runWidget({ request: Request, keychain });
   assert.ok(first.log.some((line) => line.includes('令牌无效，请重新配对')), first.log.join(' | '));
 
@@ -492,7 +521,7 @@ test('a refusal that does not come from the service leaves the token alone', asy
       throw new Error('The server returned status 401');
     }
   };
-  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40) }) };
+  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:3498', token: 'a'.repeat(40) }) };
   const run = await runWidget({ request: Request, keychain });
   assert.ok(run.log.some(line => line.includes('服务返回 401')), run.log.join(' | '));
   // The token is still there.
@@ -608,7 +637,7 @@ const runMeasured = async ({ family = 'medium', screen = [320, 568], data = over
   const context = {
     console,
     Script: { setWidget: () => {}, complete: () => {} },
-    Keychain: { get: () => JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40) }), set: () => {} },
+    Keychain: { get: () => JSON.stringify({ baseURL: 'http://127.0.0.1:3498', token: 'a'.repeat(40) }), set: () => {} },
     FileManager: {
       local: () => ({
         joinPath: (...parts) => parts.join('/'),

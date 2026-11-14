@@ -515,7 +515,7 @@ export async function startServer({ root, dataDir, magpieDir, options = {} }) {
 <p class="note">推荐这一份：装到 Scriptable 里跑一次，服务地址和只读令牌它自己换好，你一个都不用填。</p>
 <p><a class="button alt" href="/scriptable/UsageWidget.js?code=${encodeURIComponent(code)}">下载组件脚本</a></p>
 <p class="note">脚本里没有你的密钥：它只带一个一次性配对码，跑一次就换成只读令牌。</p>
-<p class="note">下载完之后，在「文件」里找到它，用 Scriptable 打开：安装器会变成 Scriptable 里的一个脚本，运行一次就把组件装好；组件脚本则直接长按桌面添加。</p>`
+<p class="note">下载完之后，在「文件」里找到它，用 Scriptable 打开：安装器会变成 Scriptable 里的一个脚本，运行一次就把组件装好；组件脚本也要先用 Scriptable 打开一次（它会变成一个脚本），再长按桌面添加。</p>`
       : guard.locked
         ? `<h1>试得太多了</h1>
 <p class="lead">这台电脑试了很多次配对码，先歇五分钟再来。</p>
@@ -581,6 +581,10 @@ export async function startServer({ root, dataDir, magpieDir, options = {} }) {
   // it. An authorized phone may still take the plain one (it has a token of
   // its own and needs no code), anybody else is refused.
   const serveSetup = async (response, code, request) => {
+    // The installer is public when no code comes with it, and the widget
+    // script is not: the phone page fetches the installer before it has a
+    // token (it hands it over to the user), and the file carries no secret.
+    // With a code the door is the same door the pairing uses.
     let paired = false;
     if (code) {
       const guard = pairingGuard(request, code, PAIR_ATTEMPTS, 'setup');

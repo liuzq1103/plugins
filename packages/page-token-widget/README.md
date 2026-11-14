@@ -110,12 +110,16 @@ in the keychain -- you type no address and no token. Only when the widget on
 the home screen is tapped does the **usage page** open: it carries that phone's
 read-only token and reads the quota and the token usage. If you only want the
 widget, the pairing page also offers the widget script itself, and it swaps
-the code for a token on its first run too.
+the code for a token on its first run too. Open it with Scriptable once as
+well: Scriptable turns it into a script, and only then does the home screen
+list it. Both roads lead to a read-only token that keeps working; which one
+you walk first does not matter, but the code opens the door once, so walking
+both of them gives the second one a token of its own.
 
 The usage page of the phone also keeps a line in sight, "copy the installer":
-one tap puts the whole installer on the clipboard; in Scriptable choose "+" ->
-"new script", paste, run, and the token lands in the keychain, so the widget
-never asks you for it again. That is the short road after a new port or a
+when the clipboard can be written, one tap puts the whole installer on it; in
+Scriptable choose "+" -> "new script", paste, run, and the token lands in the
+keychain, so the widget never asks you for it again. That is the short road after a new port or a
 reinstall: you fill in the address and the token once.
 
 When the clipboard cannot be written, the button opens a box with the whole

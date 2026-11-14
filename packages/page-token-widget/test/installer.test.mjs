@@ -34,8 +34,9 @@ class FakeAlert {
 
 // A request that answers what the test tells it to. A refusal leaves the
 // response behind, the way the service does: the script reads the status out
-// of it, because loadJSON() throws before the body arrives.
-const makeRequest = (answers) => class {
+// of it, because loadJSON() throws before the body arrives. An answer may be
+// a function, so a test can tell the calls apart by the token they carry.
+const makeRequest = (answers, asked = []) => class {
   constructor(url) {
     this.url = url;
     this.method = 'GET';
@@ -45,7 +46,10 @@ const makeRequest = (answers) => class {
     this.response = null;
   }
   async loadJSON() {
-    const answer = answers[this.url];
+    const call = { url: this.url, method: this.method, auth: this.headers.Authorization || '', body: this.body };
+    asked.push(call);
+    const given = answers[this.url];
+    const answer = typeof given === 'function' ? given(call) : given;
     if (!answer) throw new Error('no answer for ' + this.url);
     if (answer.status) {
       this.response = { statusCode: answer.status };
@@ -53,22 +57,29 @@ const makeRequest = (answers) => class {
       error.response = { statusCode: answer.status };
       throw error;
     }
+    // A request that answers leaves its response behind as well: that is
+    // where the script reads the status of a call that worked.
+    this.response = { statusCode: 200 };
     return answer.json;
   }
   async loadString() {
-    const answer = answers[this.url];
+    const call = { url: this.url, method: this.method, auth: this.headers.Authorization || '', body: this.body };
+    asked.push(call);
+    const given = answers[this.url];
+    const answer = typeof given === 'function' ? given(call) : given;
     if (!answer) throw new Error('no answer for ' + this.url);
     if (answer.status) {
       this.response = { statusCode: answer.status };
       throw new Error('status ' + answer.status);
     }
+    this.response = { statusCode: 200 };
     return answer.text;
   }
 };
 
-const runInstaller = async ({ paired = null, answers = {}, alertAnswer = -1 } = {}) => {
+const runInstaller = async ({ paired = null, answers = {}, alertAnswer = -1, saved = null } = {}) => {
   const log = [];
-  const keychain = {};
+  const keychain = saved ? { [SETTINGS_KEY]: JSON.stringify(saved) } : {};
   const writes = {};
   const opened = [];
   const asked = [];
@@ -108,7 +119,7 @@ const runInstaller = async ({ paired = null, answers = {}, alertAnswer = -1 } = 
         downloadFileFromiCloud: async () => {},
       }),
     },
-    Request: makeRequest(answers),
+    Request: makeRequest(answers, asked),
   };
   vm.createContext(context);
   // A script that comes from the pairing page carries the address and a
@@ -168,4 +179,56 @@ test('an installer without a code asks by hand', async () => {
   assert.equal(log.filter(entry => entry.title === '连接你的用量').length, 1);
   assert.equal(keychain[SETTINGS_KEY], undefined);
   assert.deepEqual(writes, {});
+});
+
+test('a token that is still good is used again instead of asking', async () => {
+  // The phone runs the installer a second time (the port of the service may
+  // have changed). A token that still works is worth more than a new one,
+  // and the phone is asked with it before anything else.
+  const baseURL = 'http://127.0.0.1:3498';
+  const old = 'c'.repeat(40);
+  const { log, keychain, writes, asked } = await runInstaller({
+    paired: { baseURL, code: 'the-one-time-code' },
+    saved: { baseURL, token: old },
+    answers: {
+      [baseURL + '/api/v1/overview']: { json: { schemaVersion: 1 } },
+      [baseURL + '/scriptable/UsageWidget.js']: { text: widgetSource },
+    },
+    alertAnswer: -1,
+  });
+  // Nothing is asked: neither by hand nor with a code.
+  assert.equal(log.filter(entry => entry.title === '连接你的用量').length, 0);
+  assert.equal(asked.filter(call => call.url.endsWith('/api/v1/session')).length, 0);
+  // The token stays the one that works, and the widget is written.
+  assert.deepEqual(JSON.parse(keychain[SETTINGS_KEY]), { baseURL, token: old });
+  assert.equal(writes['/documents/UsageWidget.js'], widgetSource);
+  // The old token is not given up, so nothing is forgotten.
+  assert.equal(asked.filter(call => call.url.endsWith('/api/v1/device/forget')).length, 0);
+});
+
+test('a new token says the old one goodbye', async () => {
+  // The token of the phone is gone (it was revoked, or the service was
+  // reinstalled). The code brings a new one: the row of the old one has to
+  // go off the list of the service, or the list grows with every re-pair.
+  const baseURL = 'http://127.0.0.1:3498';
+  const old = 'c'.repeat(40);
+  const { keychain, asked } = await runInstaller({
+    paired: { baseURL, code: 'the-one-time-code' },
+    saved: { baseURL, token: old },
+    answers: {
+      [baseURL + '/api/v1/session']: { json: { token: TOKEN, device: { id: 'd1', name: 'iPhone' }, baseURL } },
+      // The old token is refused, the new one is let in.
+      [baseURL + '/api/v1/overview']: (call) => (call.auth === 'Bearer ' + old ? { status: 401 } : { json: { schemaVersion: 1 } }),
+      [baseURL + '/scriptable/UsageWidget.js']: { text: widgetSource },
+      [baseURL + '/api/v1/device/forget']: { json: { forgotten: true } },
+    },
+    alertAnswer: -1,
+  });
+  // The new token is the one that is kept.
+  assert.deepEqual(JSON.parse(keychain[SETTINGS_KEY]), { baseURL, token: TOKEN });
+  // The old row goes off the list, and the old token is the one that asks.
+  const goodbye = asked.find(call => call.url.endsWith('/api/v1/device/forget'));
+  assert.ok(goodbye, 'the old token is put away');
+  assert.equal(goodbye.method, 'POST');
+  assert.equal(goodbye.auth, 'Bearer ' + old);
 });

@@ -13,11 +13,16 @@ and neither the address nor the token is ever typed.
   keychain. Before this the only road was typing the address and the token by
   hand, and the instructions sat at the bottom of the phone page inside a
   folded box, so the people who had just scanned the code never saw them.
+- Running the installer again does not throw a good token away: a token in the
+  keychain that still works is used first and nothing is asked. When it is gone
+  (the phone was revoked, or the service was reinstalled) the new code brings a
+  new token, and the old one takes its row off the list of the service --
+  otherwise every re-pair leaves a shadow behind that nobody can use.
 - The code still works once and still lives ten minutes. An installer that finds
   it dead says so and names the way out: go back to the plugin page on the
   computer, make a new code, scan it once more.
 - The **usage page of the phone** keeps a line in sight, "copy the installer":
-  one tap puts the whole installer on the clipboard; in Scriptable choose "+" ->
+  when the clipboard can be written, one tap puts the whole installer on it; in Scriptable choose "+" ->
   "new script", paste, run, and the token lands in the keychain, so the widget
   never asks you for it again. That is the short road after a new port or a
   reinstall.
@@ -32,6 +37,9 @@ and neither the address nor the token is ever typed.
 - The widget script asks the service for a token with the code it carries; the
   service answers a spent code with 403, and the script did not know that, so
   it tried the dead code again on every refresh. It knows now.
+- The widget script on the pairing page has to be opened with Scriptable once as
+  well: Scriptable turns it into a script, and only then does the home screen
+  list it.
 - Nothing else changed: the token format, the port, the pairing and the widget
   parameters are the same as in 0.4.6.
 
