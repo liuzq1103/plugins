@@ -1,19 +1,92 @@
 // SetupUsageWidget · @magpie-community/page-token-widget · MIT
 // Paste this entire script into Scriptable, then run it once.
 // The plugin rewrites the port below when it hands out this file.
+//
+// When the plugin hands this file out with a pairing code in it — that is
+// how the phone gets it from the pairing page — the script exchanges that
+// code for a token of its own and asks for nothing. A file that was copied
+// by hand has no code in it, and asks for the address and the token.
 const SETTINGS_KEY = "ameaq-rmrcxu-b2";
 const DEFAULT_PORT = 3498;
+let PAIRED = null;
 let saved = {};
 try { saved = JSON.parse(Keychain.get(SETTINGS_KEY)) || {}; } catch {}
-const alert = new Alert();
-alert.title = "连接你的用量";
-alert.message = "确保 iPhone 能访问你填写的服务地址。该地址可以是 Tailscale 地址，也可以是你自己配好的可信内网地址，或你自己的 HTTPS 域名。输入 PC 上生成的服务地址与只读令牌。无需填写模型 API Key。";
-alert.addTextField("http://你的 Tailscale IP:" + DEFAULT_PORT, typeof saved.baseURL === "string" ? saved.baseURL : "");
-alert.addSecureTextField("只读访问令牌", typeof saved.token === "string" ? saved.token : "");
-alert.addAction("验证并安装"); alert.addCancelAction("取消");
-if (await alert.presentAlert() !== -1) {
-  const baseURL = alert.textFieldValue(0).trim().replace(/\/+$/, "");
-  const token = alert.textFieldValue(1).trim();
+
+// The name of this phone goes with the pairing, so the person at the computer
+// can tell the phones apart when one of them is to be revoked.
+const deviceName = () => {
+  try {
+    const name = String(Device.name() || "");
+    if (name) return name.slice(0, 32);
+  } catch {}
+  return "iPhone";
+};
+
+// The status of a request that failed. loadJSON() throws before the body
+// arrives, so the code is read out of the request itself.
+const statusOf = (request, error) => {
+  const code = request && request.response ? Number(request.response.statusCode) : 0;
+  if (code) return code;
+  const said = /status\s*(\d{3})/i.exec(String((error && error.message) || ""));
+  return said ? Number(said[1]) : 0;
+};
+
+// Ask for the address and the token by hand: the road of a phone that was
+// not paired by a code.
+const askByHand = async () => {
+  const alert = new Alert();
+  alert.title = "连接你的用量";
+  alert.message = "确保 iPhone 能访问你填写的服务地址。该地址可以是 Tailscale 地址，也可以是你自己配好的可信内网地址，或你自己的 HTTPS 域名。输入 PC 上生成的服务地址与只读令牌。无需填写模型 API Key。";
+  alert.addTextField("http://你的 Tailscale IP:" + DEFAULT_PORT, typeof saved.baseURL === "string" ? saved.baseURL : "");
+  alert.addSecureTextField("只读访问令牌", typeof saved.token === "string" ? saved.token : "");
+  alert.addAction("验证并安装"); alert.addCancelAction("取消");
+  if (await alert.presentAlert() !== -1) {
+    return {
+      baseURL: alert.textFieldValue(0).trim().replace(/\/+$/, ""),
+      token: alert.textFieldValue(1).trim(),
+    };
+  }
+  return null;
+};
+
+// The plugin handed this file out with a pairing code in it. The code opens
+// the door once and lives ten minutes, so the phone exchanges it for a token
+// of its own: neither the address nor the token has to be typed.
+const pairByCode = async () => {
+  if (!PAIRED || !PAIRED.baseURL || !PAIRED.code) return null;
+  const baseURL = String(PAIRED.baseURL).trim().replace(/\/+$/, "");
+  const request = new Request(baseURL + "/api/v1/session");
+  request.method = "POST";
+  request.headers = { "Content-Type": "application/json" };
+  request.body = JSON.stringify({ code: PAIRED.code, name: deviceName() });
+  request.timeoutInterval = 12;
+  try {
+    const session = await request.loadJSON();
+    if (!session || !session.token) throw new Error("这个配对码没有换来令牌。");
+    return {
+      baseURL: String(session.baseURL || baseURL).trim().replace(/\/+$/, ""),
+      token: String(session.token).trim(),
+    };
+  } catch (error) {
+    // A code that is refused for good is dead: it was used, or it lived its
+    // ten minutes. A network that did not answer is not the code's fault.
+    const status = statusOf(request, error);
+    const dead = status === 400 || status === 403 || status === 404 || status === 409 || status === 410;
+    const failed = new Alert();
+    failed.title = dead ? "这个配对码用不了了" : "连不上这个服务";
+    failed.message = dead
+      ? "配对码只能用一次，十分钟后也会作废。\n\n回到电脑上的插件页面，重新生成一个配对码，再扫一次；或者在下面手填服务地址和只读令牌。"
+      : "这个地址没有回答：" + (error && error.message ? error.message : "没有回答") + "\n\n可以先在 Safari 里打开这个地址，看看这台 iPhone 能不能到它。";
+    failed.addAction("知道了");
+    await failed.presentAlert();
+    return null;
+  }
+};
+
+const entered = (await pairByCode()) || (await askByHand());
+if (entered) {
+  const baseURL = entered.baseURL;
+  const token = entered.token;
   try {
     // The same rules as the service itself (lib/network.mjs): HTTPS may be
     // any name, plain HTTP only a name or an address of a network that is
@@ -86,8 +159,7 @@ if (await alert.presentAlert() !== -1) {
     try {
       data = await probe.loadJSON();
     } catch (error) {
-      const said = /status\s*(\d{3})/i.exec(String((error && error.message) || ""));
-      const status = (probe.response && Number(probe.response.statusCode)) || (said ? Number(said[1]) : 0);
+      const status = statusOf(probe, error);
       if (status === 401) throw new Error("只读令牌无效。");
       throw new Error("连不上这个服务：" + (error && error.message ? error.message : "没有回答"));
     }

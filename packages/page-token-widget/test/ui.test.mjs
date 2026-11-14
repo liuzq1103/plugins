@@ -160,6 +160,55 @@ test('the phone page does not ask for a tailnet of its own', async () => {
   assert.match(installer, /确保 iPhone 能访问你填写的服务地址/);
 });
 
+test('the phone page hands over the installer with one tap', async () => {
+  const page = await read('mobile/index.html');
+  const script = await read('mobile/app.js');
+  // The QR code gives the phone the page and the token; a Scriptable script
+  // can only be made inside Scriptable, so the page hands the installer over
+  // with one tap instead of asking for a wall of text to be copied.
+  assert.match(page, /id="copySetup"/);
+  assert.match(page, /复制安装器脚本/);
+  assert.match(script, /copySetup/);
+  assert.match(script, /\/scriptable\/SetupUsageWidget\.js/);
+  // The installer that is handed over is the one of this service.
+  assert.match(script, /startsWith\('\/\/ SetupUsageWidget'\)/);
+  // A plain address of the tailnet is not a secure context: the browser
+  // there has no clipboard at all, so the text has to be shown in a box the
+  // user can pick with a long press.
+  assert.match(page, /id="copySetupText"/);
+  assert.match(script, /copySetupText/);
+  assert.match(script, /navigator\.clipboard/);
+  // The tap has to write the clipboard itself: Safari only allows that
+  // while the finger is still on the button, so the installer is fetched
+  // when the page opens.
+  assert.match(script, /void fetchSetup\(\)/);
+});
+
+test('every piece of the phone page the script reaches for is on the page', async () => {
+  const page = await read('mobile/index.html');
+  const script = await read('mobile/app.js');
+  // The script looks a piece of the page up by its name. A name that is
+  // missing is read as null and used right away, so the button that is there
+  // throws and the finger gets nothing. Every name the script asks for has
+  // to be in the page.
+  const names = [...script.matchAll(/\$\('([A-Za-z0-9_-]+)'\)/g)].map((match) => match[1]);
+  assert.ok(names.length >= 20, `only ${names.length} names found in the script`);
+  for (const name of new Set(names)) {
+    assert.match(page, new RegExp(`id="${name}"`), `the phone page has no #${name}`);
+  }
+});
+
+test('the phone page can be walked away from', async () => {
+  const page = await read('mobile/index.html');
+  const script = await read('mobile/app.js');
+  // The dialog asks for the token. A phone has no Esc key, so without a
+  // button of its own the page would stay behind it and nothing of it could
+  // be reached.
+  assert.match(page, /id="auth-close"/);
+  assert.match(script, /auth-close/);
+  assert.match(script, /\$\('auth'\)\.close\(\)/);
+});
+
 test('the console never asks with a dialog', async () => {
   const script = await read('ui/app.js');
   // The Magpie window runs the page in a sandbox: a confirm() or an alert()

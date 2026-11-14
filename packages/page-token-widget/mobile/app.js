@@ -292,7 +292,7 @@ async function load() {
       // refusal without that name comes from something in front of the
       // service, and the token of the phone may still be good — so it is
       // kept, and only the truth is told.
-      if (response.headers.get('x-token-widget-service') === 'magpie-page-token-widget') {
+      if (response.headers.get('x-token-widget-service') === '@magpie-community/page-token-widget') {
         // The service does not know this token. The phone says so, and its row
         // on the PC goes with it — the same way a widget that reads a dead
         // token cleans up after itself.
@@ -354,24 +354,77 @@ $('forget').addEventListener('click', () => {
   auth('已经断开了。');
 });
 $('auth').addEventListener('cancel', event => event.preventDefault());
+// The dialog asks for a token. On a phone there is no Esc key, so the page
+// would stay behind it and nothing of it could be reached: the button lets
+// the finger walk away.
+const authClose = $('auth-close');
+if (authClose) authClose.addEventListener('click', () => {
+  $('auth').close();
+  if (!token) $('connection').textContent = '未连接';
+});
 // The installer is handed over with one tap: the page fetches it and puts
 // it on the clipboard, so nobody has to copy a wall of text out of a
 // browser window.
 const copySetup = $('copySetup');
 const copySetupNote = $('copySetupNote');
-if (copySetup) copySetup.addEventListener('click', async () => {
-  const note = copySetupNote;
-  try {
-    const answer = await fetch('/scriptable/SetupUsageWidget.js', { cache: 'no-store' });
-    if (!answer.ok) throw new Error('取不到安装器（' + answer.status + '）');
-    const source = await answer.text();
-    if (!source.startsWith('// SetupUsageWidget')) throw new Error('这不是安装器');
-    await navigator.clipboard.writeText(source);
-    note.textContent = '已复制。到 Scriptable 里「+」→「新建脚本」，粘贴后运行。';
-  } catch (error) {
-    note.textContent = '复制不了：' + (error && error.message ? error.message : '再试一次');
+const setup = { text: null, promise: null };
+// The installer is fetched when the page opens, so the tap itself only
+// writes to the clipboard. Safari allows that only while the finger is
+// still on the button, and a fetch in between would use the permission up.
+async function fetchSetup() {
+  if (setup.text) return setup.text;
+  // One request for the page, not one per tap: the promise is kept, and a
+  // failure lets the next tap try again.
+  if (!setup.promise) {
+    setup.promise = (async () => {
+      const answer = await fetch('/scriptable/SetupUsageWidget.js', { cache: 'no-store' });
+      if (!answer.ok) throw new Error('取不到安装器（' + answer.status + '）');
+      const source = await answer.text();
+      if (!source.startsWith('// SetupUsageWidget')) throw new Error('这不是安装器');
+      setup.text = source;
+      return source;
+    })().catch(error => { setup.promise = null; throw error; });
   }
+  return setup.promise;
+}
+// A plain address of the tailnet is not a secure context, and there the
+// browser has no clipboard at all. Then the text is shown in a box, ready
+// to be picked with a long press.
+function showSetup(source) {
+  const box = $('copySetupText');
+  if (!box || !source) return false;
+  box.value = source;
+  box.hidden = false;
+  box.focus();
+  box.select();
+  return true;
+}
+if (copySetup) copySetup.addEventListener('click', () => {
+  const note = copySetupNote;
+  const done = () => {
+    note.textContent = '已复制。到 Scriptable 里「+」→「新建脚本」，粘贴后运行。';
+  };
+  const failed = (source, error) => {
+    // The hint about the box is only true when the box is there: when the
+    // installer could not be fetched at all, there is nothing below to pick.
+    const shown = showSetup(source);
+    note.textContent = '复制不了：' + (error && error.message ? error.message : '再试一次')
+      + (shown ? '。长按下面的文本，全选、拷贝。' : '。再点一次试试。');
+  };
+  const write = source => {
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      failed(source, new Error('这个地址不是安全地址，浏览器不给写入剪贴板'));
+      return;
+    }
+    navigator.clipboard.writeText(source).then(done, error => failed(source, error));
+  };
+  if (setup.text) {
+    write(setup.text);
+    return;
+  }
+  fetchSetup().then(write, error => failed('', error));
 });
+if (copySetup) void fetchSetup().catch(() => { /* The tap will try again. */ });
 $('refresh').addEventListener('click', () => void load());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) void load(); });
 if (last) render(last, true);

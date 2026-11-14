@@ -12,6 +12,8 @@ magpie plugin add @magpie-community/page-token-widget
 
 点一下手机上的组件，Safari 会打开手机版的用量页：各家订阅的额度、今日 Token、近七日趋势，以及按模型、厂商、Agent 和电脑排的榜。数字和电脑上看到的一样。这一页只在手机这一侧提供，页里不带任何密钥——令牌只在地址栏的 `#token=` 一段里出现一下，页面读完就抹掉，Scriptable 自己把令牌存在钥匙串里。
 
+扫完码打开的是**配对页**，页上给一份会自己配对的安装器：下载下来，用 Scriptable 打开、运行一次，服务地址和只读令牌它自己换好，你一个都不用填。页面上常驻一行「复制安装器脚本」：点一下整份安装器就进了剪贴板，到 Scriptable 里「+」→「新建脚本」、粘贴、运行，组件就装好了；复制不了的时候，按钮下面会展开一个装着全文的文本框，长按全选、拷贝。
+
 **控制台永远留在本机**：它只听 `127.0.0.1`，尾网里的设备够不到它，伪造 `Host` 头也没有用（见下面的「安全边界」）。
 
 # @magpie-community/page-token-widget
@@ -33,8 +35,9 @@ magpie plugin add @magpie-community/page-token-widget
 ## What it does
 
 - The plugin page shows a QR code. The camera of the iPhone opens the pairing
-  page in Safari, the widget script is downloaded, Scriptable opens it, and the
-  widget goes on the home screen.
+  page in Safari, the installer script is downloaded, Scriptable opens it and
+  runs it once, and the widget goes on the home screen -- the service address
+  and the read-only token it swaps for itself.
 - The widget shows the remaining quota of every subscription, the percentage and
   the reset countdown of the 5-hour and the weekly window, today's tokens, the
   last seven days and the ranking per provider.
@@ -94,19 +97,33 @@ computer is not the one to use).
 2. The page shows the state of Tailscale. When the computer and the iPhone
    share a tailnet, it shows the tailnet address and a code to scan.
 3. Scan the code with the camera of the iPhone, open the page in Safari and
-   download the widget script.
-4. Open the downloaded `UsageWidget.js` in the Files app and choose
-   "Share → Open with Scriptable".
+   download the installer script.
+4. Open the downloaded `SetupUsageWidget.js` in the Files app and choose
+   "Share → Open with Scriptable", then run it once: it swaps the service
+   address and the read-only token for you and installs the widget script.
 5. Long press the home screen, add the Scriptable widget and pick `UsageWidget`.
 
-Scanning gives the phone the usage page: it carries that phone's read-only
-token and reads the quota and the token usage. To put a widget on the home
-screen as well, the phone needs a Scriptable script -- the usage page now keeps
-a line in sight, "copy the installer": one tap puts the whole installer on the
-clipboard; in Scriptable choose "+" -> "new script", paste, run, and the token
-lands in the keychain, so the widget never asks you for it again. The "download
-the widget script" button of the pairing page leads to the same place: that
-road hands over the widget script itself.
+Scanning opens the **pairing page**, not the usage page. The installer on that
+page carries the one-time code (it lives ten minutes): running it in Scriptable
+swaps it for a token of its own, installs the widget script and puts the token
+in the keychain -- you type no address and no token. Only when the widget on
+the home screen is tapped does the **usage page** open: it carries that phone's
+read-only token and reads the quota and the token usage. If you only want the
+widget, the pairing page also offers the widget script itself, and it swaps
+the code for a token on its first run too.
+
+The usage page of the phone also keeps a line in sight, "copy the installer":
+one tap puts the whole installer on the clipboard; in Scriptable choose "+" ->
+"new script", paste, run, and the token lands in the keychain, so the widget
+never asks you for it again. That is the short road after a new port or a
+reinstall: you fill in the address and the token once.
+
+When the clipboard cannot be written, the button opens a box with the whole
+installer in it: long press it, select all, copy. A plain `http` address of the
+tailnet is not a secure context, and Safari gives a page no clipboard there --
+so that road is the one most people walk. The installer on the pairing page is
+a downloaded file and does not use the clipboard, so that paragraph is about
+the usage page of the phone alone.
 
 The pairing code works once and lives ten minutes. The script carries only that
 one-time code; on its first run it exchanges the code for a token of its own and

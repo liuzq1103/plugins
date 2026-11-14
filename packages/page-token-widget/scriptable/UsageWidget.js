@@ -133,7 +133,7 @@ if (PAIRED && PAIRED.code && (!storedToken || (settings.code || "") !== PAIRED.c
     const said = reason.match(/status\s*(\d{3})/i);
     const status = (error && error.response && Number(error.response.statusCode))
       || (said ? Number(said[1]) : 0);
-    codeIsSpent = status === 400 || status === 404 || status === 409 || status === 410;
+    codeIsSpent = status === 400 || status === 403 || status === 404 || status === 409 || status === 410;
   }
   if (exchanged) {
     // The new token is put away first. If the phone is closed while the old

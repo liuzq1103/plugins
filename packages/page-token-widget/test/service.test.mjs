@@ -157,6 +157,33 @@ test('the setup script of the phone carries the port of this service', async () 
   assert.match(source, new RegExp('const DEFAULT_PORT = ' + port + ';'));
   // The script and the widget have to agree on the keychain key.
   assert.match(source, /const SETTINGS_KEY = "ameaq-rmrcxu-b2";/);
+  // Without a code the phone types the address and the token itself.
+  assert.match(source, /let PAIRED = null;/);
+});
+
+test('the installer of the phone carries the pairing code and pairs by itself', async () => {
+  const rotated = await post('/api/v1/console/pair', {}, { [TOKEN_HEADER]: state.consoleToken });
+  assert.equal(rotated.status, 200);
+  const consoleState = await rotated.json();
+  const response = await fetch(base + '/scriptable/SetupUsageWidget.js?code=' + consoleState.pairingCode);
+  assert.equal(response.status, 200);
+  // The file comes down as a file, so Safari saves it and the phone can hand
+  // it to Scriptable.
+  assert.match(response.headers.get('content-disposition') || '', /attachment; filename="SetupUsageWidget\.js"/);
+  const source = await response.text();
+  assert.match(source, /let PAIRED = \{/);
+  assert.match(source, new RegExp('const DEFAULT_PORT = ' + port + ';'));
+  // Taking the file does not spend the code: the phone exchanges it when it
+  // runs the installer.
+  const paired = await post('/api/v1/session', { code: consoleState.pairingCode });
+  assert.equal(paired.status, 200);
+  assert.equal(typeof (await paired.json()).token, 'string');
+  // A code that does not open the door does not get a script with a code in it.
+  const denied = await fetch(base + '/scriptable/SetupUsageWidget.js?code=nope');
+  assert.equal(denied.status, 403);
+  const plain = await fetch(base + '/scriptable/SetupUsageWidget.js');
+  assert.equal(plain.status, 200);
+  assert.match(await plain.text(), /let PAIRED = null;/);
 });
 
 test('the small widget is never empty because of an old parameter', async () => {
@@ -181,6 +208,10 @@ test('the page of the phone explains the three steps', async () => {
   const html = await response.text();
   assert.match(html, /下载组件脚本/);
   assert.match(html, /UsageWidget\.js/);
+  // The installer is handed over as well: it carries the code, so the phone
+  // types neither the address nor the token.
+  assert.match(html, /下载安装器脚本/);
+  assert.match(html, /SetupUsageWidget\.js\?code=/);
   const expired = await fetch(base + '/p/nope');
   assert.equal(expired.status, 410);
   assert.match(await expired.text(), /已经失效/);

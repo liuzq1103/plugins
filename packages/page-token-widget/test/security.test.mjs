@@ -680,6 +680,34 @@ test('the page of the pairing code and the script are shut out as well', async (
   }
 });
 
+test('the door of the installer counts on its own', async () => {
+  // The installer of the phone is a door as well: it says whether a code is
+  // good. It has a counter of its own, so leaning on it does not shut the
+  // door of the widget or of the pairing itself.
+  const otherDir = await tempDir();
+  const other = await start(otherDir);
+  const otherBase = `http://127.0.0.1:${other.port}`;
+  try {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const wrong = await fetch(otherBase + '/scriptable/SetupUsageWidget.js?code=wrong');
+      assert.equal(wrong.status, 403);
+    }
+    const locked = await fetch(otherBase + '/scriptable/SetupUsageWidget.js?code=wrong');
+    assert.equal(locked.status, 429);
+    // The pairing itself is still open.
+    const session = await post(otherBase, '/api/v1/session', { code: 'wrong' });
+    assert.equal(session.status, 403);
+    // The plain installer is open for everybody: the phone copies it without
+    // a token of its own.
+    const plain = await fetch(otherBase + '/scriptable/SetupUsageWidget.js');
+    assert.equal(plain.status, 200);
+    assert.match(await plain.text(), /let PAIRED = null;/);
+  } finally {
+    await other.close();
+    await cleanup(otherDir);
+  }
+});
+
 test('the file of the state belongs to the user of this computer alone', async (t) => {
   // Windows does not keep the rights of a file, so the check is only of
   // meaning on the other systems.

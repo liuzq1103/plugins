@@ -2,20 +2,36 @@
 
 ## 0.4.7
 
-The phone gets the installer with one tap.
+The phone gets the installer with one tap: scan the code, install the widget,
+and neither the address nor the token is ever typed.
 
-- Scanning gives the phone the **usage page**: it carries that phone's
-  read-only token and reads the quota and the token usage. The **widget
-  script** is another thing -- it is a Scriptable script, and it can only be
-  made inside Scriptable. The instructions used to sit at the very bottom of
-  the phone page, inside a folded box, so the people who had just scanned the
-  code never saw them. The usage page now keeps a line in sight, "copy the
-  installer": one tap puts the whole installer on the clipboard; in Scriptable
-  choose "+" -> "new script", paste, run, and the token lands in the keychain,
-  so the widget never asks you for it again.
-- The "download the widget script" button of the pairing page has always been
-  there; it hands over the widget script itself. The two roads end in the same
-  place.
+- **The pairing page hands out an installer that pairs by itself.** Scanning
+  opens the **pairing page** (not the usage page); its "download the installer
+  script" gives a `SetupUsageWidget.js` that carries the one-time code: run it
+  once in Scriptable and it swaps the service address and the read-only token
+  for a token of its own, installs the widget script and puts the token in the
+  keychain. Before this the only road was typing the address and the token by
+  hand, and the instructions sat at the bottom of the phone page inside a
+  folded box, so the people who had just scanned the code never saw them.
+- The code still works once and still lives ten minutes. An installer that finds
+  it dead says so and names the way out: go back to the plugin page on the
+  computer, make a new code, scan it once more.
+- The **usage page of the phone** keeps a line in sight, "copy the installer":
+  one tap puts the whole installer on the clipboard; in Scriptable choose "+" ->
+  "new script", paste, run, and the token lands in the keychain, so the widget
+  never asks you for it again. That is the short road after a new port or a
+  reinstall.
+- When the clipboard cannot be written, the button opens a box with the whole
+  installer in it: long press it, select all, copy. A plain `http` address of
+  the tailnet is not a secure context, and Safari gives a page no clipboard
+  there -- so that road is the one most people walk. The installer is fetched
+  when the page opens, so the tap writes the clipboard itself: Safari allows
+  that only while the finger is still on the button.
+- The page of the phone asks for the token in a dialog that could not be walked
+  away from (a phone has no Esc key). It has a button of its own now.
+- The widget script asks the service for a token with the code it carries; the
+  service answers a spent code with 403, and the script did not know that, so
+  it tried the dead code again on every refresh. It knows now.
 - Nothing else changed: the token format, the port, the pairing and the widget
   parameters are the same as in 0.4.6.
 

@@ -120,6 +120,7 @@ const PAIR_PAGE = `<!doctype html>
       h1 { font-size:19px; font-weight:600; margin:0 0 8px; }
       .lead { margin:0 0 16px; color:var(--muted); font-size:13px; }
       .button { display:block; text-align:center; padding:13px 16px; border-radius:11px; background:var(--accent); color:var(--card); text-decoration:none; font-weight:500; }
+      .button.alt { background:transparent; color:var(--fg); border:1px solid var(--line); }
       .note { margin:14px 0 0; color:var(--muted); font-size:12px; }
     </style>
   </head>
@@ -510,9 +511,11 @@ export async function startServer({ root, dataDir, magpieDir, options = {} }) {
     const content = usable
       ? `<h1>装好 iPhone 额度组件</h1>
 <p class="lead">这个配对码只能用一次，十分钟后也会作废。它换来的是一台只读的令牌，手机用它去读用量。</p>
-<p><a class="button" href="/scriptable/UsageWidget.js?code=${encodeURIComponent(code)}">下载组件脚本</a></p>
+<p><a class="button" href="/scriptable/SetupUsageWidget.js?code=${encodeURIComponent(code)}">下载安装器脚本</a></p>
+<p class="note">推荐这一份：装到 Scriptable 里跑一次，服务地址和只读令牌它自己换好，你一个都不用填。</p>
+<p><a class="button alt" href="/scriptable/UsageWidget.js?code=${encodeURIComponent(code)}">下载组件脚本</a></p>
 <p class="note">脚本里没有你的密钥：它只带一个一次性配对码，跑一次就换成只读令牌。</p>
-<p class="note">下载完之后，在「文件」里找到它，用 Scriptable 打开，再按提示装到桌面。</p>`
+<p class="note">下载完之后，在「文件」里找到它，用 Scriptable 打开：安装器会变成 Scriptable 里的一个脚本，运行一次就把组件装好；组件脚本则直接长按桌面添加。</p>`
       : guard.locked
         ? `<h1>试得太多了</h1>
 <p class="lead">这台电脑试了很多次配对码，先歇五分钟再来。</p>
@@ -567,6 +570,64 @@ export async function startServer({ root, dataDir, magpieDir, options = {} }) {
       'X-Content-Type-Options': 'nosniff',
     });
     response.end(body);
+  };
+
+  // The installer of the phone. Without a code it is the plain script: the
+  // phone types the address and the token itself. With a code it carries
+  // that code, so the phone exchanges it for a token of its own and asks for
+  // nothing: this is the file the pairing page hands out.
+  //
+  // A code that does not open the door does not get a script with a code in
+  // it. An authorized phone may still take the plain one (it has a token of
+  // its own and needs no code), anybody else is refused.
+  const serveSetup = async (response, code, request) => {
+    let paired = false;
+    if (code) {
+      const guard = pairingGuard(request, code, PAIR_ATTEMPTS, 'setup');
+      if (guard.ok) {
+        paired = true;
+      } else if (!phoneAuthorized(request)) {
+        return json(response, guard.status, { error: guard.error });
+      }
+    }
+    let source;
+    try {
+      source = await readFile(path.join(root, 'scriptable', 'SetupUsageWidget.js'), 'utf8');
+    } catch {
+      return text(response, 404, 'Not found');
+    }
+    // The port of this service is written into the script, so the phone does
+    // not have to guess it.
+    // The phone is told the port of the address it is given: in the mode of
+    // an address of the user's own that is the port of the phone side.
+    let servicePort = port;
+    try {
+      const address = serviceURL();
+      if (address) {
+        const parsed = new URL(address);
+        servicePort = Number(parsed.port) || (parsed.protocol === 'https:' ? 443 : 80);
+      }
+    } catch {
+      servicePort = port;
+    }
+    source = source.replace(/const DEFAULT_PORT = \d+;/, `const DEFAULT_PORT = ${servicePort};`);
+    const headers = {
+      'Content-Type': 'text/javascript; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    };
+    if (paired) {
+      // The file comes down as a file, so Safari saves it and the phone can
+      // hand it to Scriptable. Without this header Safari shows the script as
+      // text, and the hand-over never starts.
+      headers['Content-Disposition'] = 'attachment; filename="SetupUsageWidget.js"';
+      source = source.replace(
+        'let PAIRED = null;',
+        `let PAIRED = { baseURL: ${JSON.stringify(serviceURL())}, code: ${JSON.stringify(code)} };`,
+      );
+    }
+    response.writeHead(200, headers);
+    response.end(source);
   };
 
   // The page of the phone. It carries no token: the phone brings its own in
@@ -984,34 +1045,7 @@ export async function startServer({ root, dataDir, magpieDir, options = {} }) {
     }
 
     if (pathname === '/scriptable/SetupUsageWidget.js' && method === 'GET') {
-      try {
-        const body = await readFile(path.join(root, 'scriptable', 'SetupUsageWidget.js'), 'utf8');
-        response.writeHead(200, {
-          'Content-Type': 'text/javascript; charset=utf-8',
-          'Cache-Control': 'no-store',
-          'X-Content-Type-Options': 'nosniff',
-        });
-        // The port of this service is written into the script, so the phone
-        // does not have to guess it.
-        // The phone is told the port of the address it is given: in the mode
-        // of an address of the user's own that is the port of the phone side.
-        let servicePort = port;
-        try {
-          const address = serviceURL();
-          if (address) {
-            const parsed = new URL(address);
-            servicePort = Number(parsed.port) || (parsed.protocol === 'https:' ? 443 : 80);
-          }
-        } catch {
-          servicePort = port;
-        }
-        // The port the installer suggests is the port of this service, not a
-        // number that was written down once in the file: a plugin that is
-        // given another port has to say so.
-        return response.end(body.replace(/const DEFAULT_PORT = \d+;/, `const DEFAULT_PORT = ${servicePort};`));
-      } catch {
-        return text(response, 404, 'Not found');
-      }
+      return serveSetup(response, url.searchParams.get('code'), request);
     }
 
     if (pathname.startsWith('/p/') && method === 'GET') {
