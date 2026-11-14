@@ -397,6 +397,9 @@ function showSetup(source) {
   box.hidden = false;
   box.focus();
   box.select();
+  // The selection ends at the end of the text, and that scrolls the box to
+  // the bottom of the script. The top of it is the part worth reading.
+  box.scrollTop = 0;
   return true;
 }
 if (copySetup) copySetup.addEventListener('click', () => {
@@ -404,25 +407,32 @@ if (copySetup) copySetup.addEventListener('click', () => {
   const done = () => {
     note.textContent = '已复制。到 Scriptable 里「+」→「新建脚本」，粘贴后运行。';
   };
-  const failed = (source, error) => {
+  // The reason is written in Chinese: the browser says its own words in
+  // English ("Write permission denied"), and that ends up in the middle of
+  // a Chinese sentence.
+  const failed = (source, reason) => {
     // The hint about the box is only true when the box is there: when the
     // installer could not be fetched at all, there is nothing below to pick.
     const shown = showSetup(source);
-    note.textContent = '复制不了：' + (error && error.message ? error.message : '再试一次')
-      + (shown ? '。长按下面的文本，全选、拷贝。' : '。再点一次试试。');
+    note.textContent = '复制不了：' + reason + (shown ? '。长按下面的文本，全选、拷贝。' : '。再点一次试试。');
   };
   const write = source => {
+    const reason = '这个地址不是安全地址，浏览器不给写入剪贴板';
     if (!navigator.clipboard || !navigator.clipboard.writeText) {
-      failed(source, new Error('这个地址不是安全地址，浏览器不给写入剪贴板'));
+      failed(source, reason);
       return;
     }
-    navigator.clipboard.writeText(source).then(done, error => failed(source, error));
+    navigator.clipboard.writeText(source).then(done, () => failed(source, reason));
   };
   if (setup.text) {
     write(setup.text);
     return;
   }
-  fetchSetup().then(write, error => failed('', error));
+  fetchSetup().then(write, error => {
+    // The browser writes its own words in English; the page speaks Chinese.
+    const message = error && error.message ? error.message : '再试一次';
+    failed('', message === 'Failed to fetch' ? '连不上服务' : message);
+  });
 });
 if (copySetup) void fetchSetup().catch(() => { /* The tap will try again. */ });
 $('refresh').addEventListener('click', () => void load());
